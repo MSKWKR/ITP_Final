@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Errand Route Optimizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold text-slate-900">🗺️ Errand Route Optimizer</h1>
+      <p class="text-slate-600 mt-1">
+        Pick your errands and a time budget — we'll find the fastest walking route
+        using real street distances.
+      </p>
+    </header>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- ===== Input form ===== -->
+      <section class="bg-white rounded-xl shadow p-6">
+        <form method="POST" action="/">
+          <label class="block font-semibold mb-1" for="address">Starting address</label>
+          <input
+            id="address" name="address" type="text" required
+            value="{{ form.address }}"
+            placeholder="e.g. Times Square, New York"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4
+                   focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+
+          <p class="font-semibold mb-2">
+            Errands <span class="text-slate-400 font-normal">(up to {{ max_errands }})</span>
+          </p>
+          <div class="grid grid-cols-2 gap-2 mb-4">
+            {% for e in errands %}
+            <label class="flex items-center gap-2 border border-slate-200 rounded-lg
+                          px-3 py-2 cursor-pointer hover:bg-slate-50">
+              <input type="checkbox" name="errands" value="{{ e.key }}"
+                     {% if e.key in form.selected %}checked{% endif %}
+                     class="accent-blue-600" />
+              <span>{{ e.label }}
+                <span class="text-xs text-slate-400">~{{ e.visit_minutes }}m</span>
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+
+          <label class="block font-semibold mb-1" for="budget">
+            Time budget: <span id="budget-val">{{ form.budget }}</span> min
+          </label>
+          <input
+            id="budget" name="budget" type="range" min="20" max="90" step="5"
+            value="{{ form.budget }}"
+            oninput="document.getElementById('budget-val').textContent = this.value"
+            class="w-full mb-4 accent-blue-600" />
+
+          <label class="flex items-center gap-2 mb-5 cursor-pointer">
+            <input type="checkbox" name="round_trip"
+                   {% if form.round_trip %}checked{% endif %} class="accent-blue-600" />
+            <span>Return to start (round trip)</span>
+          </label>
+
+          <button type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold
+                   rounded-lg py-2.5 transition">
+            Find best route
+          </button>
+        </form>
+
+        {% if error %}
+        <div class="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3">
+          {{ error }}
+        </div>
+        {% endif %}
+      </section>
+
+      <!-- ===== Results ===== -->
+      <section class="bg-white rounded-xl shadow p-6">
+        {% if result %}
+          <!-- Verdict panel -->
+          {% if result.fits %}
+          <div class="bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 mb-4">
+            <p class="font-bold text-lg">✓ Route fits in {{ result.total_minutes|round(0)|int }} min</p>
+            <p class="text-sm">Budget is {{ form.budget }} min — you have
+              {{ (form.budget - result.total_minutes)|round(0)|int }} min to spare.</p>
+          </div>
+          {% else %}
+          <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 mb-4">
+            <p class="font-bold text-lg">✗ Doesn't fit — needs {{ result.total_minutes|round(0)|int }} min</p>
+            <p class="text-sm">That's {{ (result.total_minutes - form.budget)|round(0)|int }} min
+              over your {{ form.budget }} min budget.
+              {% if drop_suggestion %}
+                Try dropping <b>{{ drop_suggestion.errand.label }}</b> (the farthest stop).
+              {% endif %}
+            </p>
+          </div>
+          {% endif %}
+
+          <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+            <div class="bg-slate-50 rounded-lg py-2">
+              <p class="text-xs text-slate-500">Walking</p>
+              <p class="font-bold">{{ result.walking_minutes|round(0)|int }} min</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg py-2">
+              <p class="text-xs text-slate-500">At stops</p>
+              <p class="font-bold">{{ result.visit_minutes }} min</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg py-2">
+              <p class="text-xs text-slate-500">Total</p>
+              <p class="font-bold">{{ result.total_minutes|round(0)|int }} min</p>
+            </div>
+          </div>
+
+          <!-- Ordered stop list -->
+          <ol class="space-y-2 mb-2">
+            <li class="flex gap-3 items-start">
+              <span class="shrink-0 w-7 h-7 rounded-full bg-green-600 text-white
+                           flex items-center justify-center font-bold text-sm">●</span>
+              <span class="pt-0.5"><b>Start</b><br>
+                <span class="text-xs text-slate-500">{{ start_name }}</span></span>
+            </li>
+            {% for stop in result.stops %}
+            <li class="flex gap-3 items-start">
+              <span class="shrink-0 w-7 h-7 rounded-full bg-blue-600 text-white
+                           flex items-center justify-center font-bold text-sm">{{ loop.index }}</span>
+              <span class="pt-0.5"><b>{{ stop.errand.label }}</b><br>
+                <span class="text-xs text-slate-500">{{ stop.place.name }}</span></span>
+            </li>
+            {% endfor %}
+            {% if result.round_trip %}
+            <li class="flex gap-3 items-start">
+              <span class="shrink-0 w-7 h-7 rounded-full bg-green-600 text-white
+                           flex items-center justify-center font-bold text-sm">●</span>
+              <span class="pt-0.5"><b>Return to start</b></span>
+            </li>
+            {% endif %}
+          </ol>
+        {% else %}
+          <div class="text-center text-slate-400 py-16">
+            <p class="text-5xl mb-3">🧭</p>
+            <p>Your optimized route will appear here.</p>
+          </div>
+        {% endif %}
+      </section>
+    </div>
+
+    <!-- ===== Map ===== -->
+    {% if map_html %}
+    <section class="bg-white rounded-xl shadow p-3 mt-6">
+      <div class="rounded-lg overflow-hidden">{{ map_html|safe }}</div>
+    </section>
+    {% endif %}
+
+    <footer class="text-center text-xs text-slate-400 mt-8">
+      Geocoding by Nominatim · routing by OSRM · map by Folium/Leaflet
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,14 @@
+/* Custom tweaks on top of Tailwind (loaded via CDN). */
+
+/* Folium injects an iframe sized in pixels; let it fill our rounded card and
+   keep a comfortable minimum height on small screens. */
+.leaflet-container,
+iframe {
+  width: 100% !important;
+  min-height: 460px;
+}
+
+/* Range slider thumb a touch larger for easier grabbing. */
+input[type="range"] {
+  height: 6px;
+}

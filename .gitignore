@@ -1,0 +1,22 @@
+# Project brief (keep local)
+PROJECT.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Flask
+instance/
+.flask_session/
+
+# Environment / secrets
+.env
+*.log
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
