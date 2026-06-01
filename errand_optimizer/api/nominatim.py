@@ -6,6 +6,7 @@ re-running the same search during a session (and during the optimizer's repeated
 lookups) doesn't hammer the public server.
 """
 
+import re
 import threading
 import time
 
@@ -66,16 +67,62 @@ def _throttled_get(params: dict) -> list[dict]:
     return data
 
 
-def geocode(address: str) -> Place:
-    """Resolve a free-form address to a single Place. Raises if not found."""
+def _simplify_address(address: str) -> str:
+    """Strip clutter that confuses Nominatim's free-text parser.
+
+    Google-formatted addresses (especially outside the US) carry detail that
+    Nominatim handles poorly: a leading "No.", neighborhood/village segments, a
+    trailing postal code, and the word "City". Dropping those usually turns a
+    failing lookup into a hit, e.g.
+
+        "No. 101, Section 2, Guangfu Rd, Guangming Village, East District,
+         Hsinchu City, 300"
+        -> "101, Section 2, Guangfu Rd, East District, Hsinchu"
+    """
+    kept = []
+    for seg in (s.strip() for s in address.split(",")):
+        if not seg:
+            continue
+        if re.fullmatch(r"\d{3,6}", seg):              # bare postal code
+            continue
+        if re.search(r"\bvillage\b", seg, re.I):       # neighborhood noise
+            continue
+        seg = re.sub(r"^No\.?\s*", "", seg, flags=re.I)        # "No. 101" -> "101"
+        seg = re.sub(r"\bCity\b", "", seg, flags=re.I).strip()  # "Hsinchu City" -> "Hsinchu"
+        if seg:
+            kept.append(seg)
+    return ", ".join(kept)
+
+
+def _try_geocode(address: str) -> Place | None:
+    """Return the top match for `address`, or None if Nominatim finds nothing."""
     results = _throttled_get(
         {"q": address, "format": "json", "limit": 1, "addressdetails": 0}
     )
     if not results:
-        raise ValueError(f"Could not geocode address: {address!r}")
-
+        return None
     top = results[0]
     return Place(top.get("display_name", address), float(top["lat"]), float(top["lon"]))
+
+
+def geocode(address: str) -> Place:
+    """Resolve a free-form address to a single Place. Raises if not found.
+
+    Tries the address as given first; if that fails, retries once with a
+    simplified version (see `_simplify_address`) so over-detailed pastes from
+    Google Maps still resolve.
+    """
+    place = _try_geocode(address)
+    if place is not None:
+        return place
+
+    simplified = _simplify_address(address)
+    if simplified and simplified != address:
+        place = _try_geocode(simplified)
+        if place is not None:
+            return place
+
+    raise ValueError(f"Could not geocode address: {address!r}")
 
 
 def search_candidates(
